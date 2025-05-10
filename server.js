@@ -5,10 +5,18 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: '*',
-        methods: ['GET', 'POST']
+        origin: "https://staging.coddot.in",
+        methods: ["GET", "POST"],
+        credentials: true
     }
 });
+
+// const io = new Server(server, {
+//     cors: {
+//         origin: '*',
+//         methods: ['GET', 'POST']
+//     }
+// });
 
 const onlineUsers = new Map();
 
