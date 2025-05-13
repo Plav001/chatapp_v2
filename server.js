@@ -5,18 +5,10 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: ["https://coddot.in", "https://www.coddot.in"],
-        methods: ["GET", "POST"],
-        credentials: true
+        origin: '*',
+        methods: ['GET', 'POST']
     }
 });
-
-// const io = new Server(server, {
-//     cors: {
-//         origin: '*',
-//         methods: ['GET', 'POST']
-//     }
-// });
 
 const onlineUsers = new Map();
 
@@ -39,7 +31,7 @@ io.on('connection', (socket) => {
             }
             onlineUsers.set(userId, { socketId: socket.id, name, email, status: 'online' });
             socket.join(userId);
-            console.log(`User ${userId} joined room ${userId}`);
+            console.log(`User ${userId} joined room ${userId}, current rooms:`, Array.from(socket.rooms));
 
             const statusUpdate = { userId, status: 'online', name, email, message, timestamp };
             console.log(`Emitting user-status-update:`, statusUpdate);
@@ -56,13 +48,31 @@ io.on('connection', (socket) => {
     });
 
     socket.on('join-room', (roomId) => {
+        roomId = String(roomId);
         socket.join(roomId);
-        console.log(`Socket ${socket.id} joined room ${roomId}, current rooms:`, socket.rooms);
+        console.log(`Socket ${socket.id} joined room ${roomId}, current rooms:`, Array.from(socket.rooms));
+        socket.emit('room-joined', { roomId });
     });
 
-    socket.on('send-message', ({ roomId, message, sender, from, timestamp, image }) => {
-        console.log(`Message sent to room ${roomId} by ${sender} (${from}):`, { message, timestamp, image });
-        io.to(roomId).emit('new-message', { threadId: roomId, message, sender, from, timestamp, image });
+    socket.on('send-message', ({ roomId, message, sender, timestamp, from, image, msgId }) => {
+        roomId = String(roomId);
+        console.log(`Received send-message for room ${roomId}:`, { message, sender, timestamp, from, image, msgId });
+        const roomSockets = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
+        console.log(`Sockets in room ${roomId}:`, roomSockets);
+        if (roomSockets.length === 0) {
+            console.warn(`No sockets in room ${roomId}, message not broadcasted`);
+        } else {
+            io.to(roomId).emit('new-message', {
+                threadId: roomId,
+                message,
+                sender,
+                timestamp,
+                from,
+                image,
+                msgId
+            });
+            console.log(`Broadcasted new-message to room ${roomId}`);
+        }
     });
 
     socket.on('disconnect', () => {
