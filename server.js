@@ -12,6 +12,7 @@ const io = new Server(server, {
 });
 
 const onlineUsers = new Map();
+const manual = new Map();
 
 app.use(express.static('public', {
     setHeaders: (res, path) => {
