@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const app = express();
+const axios = require('axios');
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
@@ -71,11 +72,55 @@ io.on('connection', (socket) => {
                 image,
                 msgId
             });
-            console.log(`Broadcasted new-message to room ${roomId}`);
+            console.log(`Broadcasted new-message to room ${roomId} for sockets:`, roomSockets);
         }
     });
 
-    socket.on('disconnect', () => {
+    // socket.on('send-message', ({ roomId, message, sender, timestamp, from, image, msgId }) => {
+    //     roomId = String(roomId);
+    //     console.log(`Received send-message for room ${roomId}:`, { message, sender, timestamp, from, image, msgId });
+    //     const roomSockets = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
+    //     console.log(`Sockets in room ${roomId}:`, roomSockets);
+    //     if (roomSockets.length === 0) {
+    //         console.warn(`No sockets in room ${roomId}, message not broadcasted`);
+    //     } else {
+    //         io.to(roomId).emit('new-message', {
+    //             threadId: roomId,
+    //             message,
+    //             sender,
+    //             timestamp,
+    //             from,
+    //             image,
+    //             msgId
+    //         });
+    //         console.log(`Broadcasted new-message to room ${roomId}`);
+    //     }
+    // });
+
+    // socket.on('disconnect', () => {
+    //     console.log(`Client disconnected: ${socket.id}`);
+    //     let disconnectedUserId = null;
+    //     let userData = null;
+    //     for (const [userId, data] of onlineUsers.entries()) {
+    //         if (data.socketId === socket.id) {
+    //             disconnectedUserId = userId;
+    //             userData = data;
+    //             break;
+    //         }
+    //     }
+    //     if (disconnectedUserId && userData) {
+    //         onlineUsers.delete(disconnectedUserId);
+    //         console.log(`User ${disconnectedUserId} marked offline`);
+    //         io.emit('user-status-update', {
+    //             userId: disconnectedUserId,
+    //             status: 'offline',
+    //             name: userData.name,
+    //             email: userData.email
+    //         });
+    //     }
+    // });
+
+    socket.on('disconnect', async () => {
         console.log(`Client disconnected: ${socket.id}`);
         let disconnectedUserId = null;
         let userData = null;
@@ -89,12 +134,25 @@ io.on('connection', (socket) => {
         if (disconnectedUserId && userData) {
             onlineUsers.delete(disconnectedUserId);
             console.log(`User ${disconnectedUserId} marked offline`);
+            // Call logout.php to update database
+            try {
+                const response = await axios.post('http://localhost/chatapp_v2/user/logout.php', { uid: disconnectedUserId }, {
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                });
+                console.log(`logout.php response for user ${disconnectedUserId}:`, response.data);
+                if (response.data.status !== 'success') {
+                    console.error(`Failed to logout user ${disconnectedUserId}:`, response.data.error);
+                }
+            } catch (error) {
+                console.error(`Error calling logout.php for user ${disconnectedUserId}:`, error.message);
+            }
             io.emit('user-status-update', {
                 userId: disconnectedUserId,
                 status: 'offline',
                 name: userData.name,
                 email: userData.email
             });
+            io.emit('logout', { userId: disconnectedUserId });
         }
     });
 
@@ -109,10 +167,12 @@ io.on('connection', (socket) => {
                 name: userData.name,
                 email: userData.email
             });
+            io.emit('logout', { userId });
         } else {
             console.warn(`Logout attempt for unknown user ${userId}`);
         }
     });
+
 });
 
 const PORT = process.env.PORT || 3000;
