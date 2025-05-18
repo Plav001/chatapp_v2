@@ -6,7 +6,7 @@ const axios = require('axios');
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: ['https://coddot.in/'],
+        origin: '*',
         methods: ['GET', 'POST']
     }
 });
@@ -80,7 +80,7 @@ io.on('connection', (socket) => {
                 return;
             }
         } catch (error) {
-            console.error(`Error checking block status for user ${userId}:`, error.message);
+            console.error(`Error checking block status for user ${roomId}:`, error.message);
         }
 
         socket.join(roomId);
