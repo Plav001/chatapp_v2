@@ -12,6 +12,7 @@ const io = new Server(server, {
 });
 
 const onlineUsers = new Map();
+const DISCONNECT_GRACE_PERIOD = 7000;
 
 app.use(express.static('public', {
     setHeaders: (res, path) => {
@@ -22,20 +23,38 @@ app.use(express.static('public', {
 }));
 
 io.on('connection', (socket) => {
-    console.log(`Client connected: ${socket.id}`);
-
-    socket.on('register', ({ userId, name, email, message, timestamp }) => {
+    socket.on('register', async ({ userId, name, email, message, timestamp }) => {
         if (userId) {
-            console.log(`Received register event for user ${userId}:`, { name, email, message, timestamp });
-            if (onlineUsers.has(userId)) {
-                console.log(`User ${userId} re-registered, updating socket ID`);
+
+            try {
+                const response = await axios.post('http://localhost/chatapp_v2/user/backend/threads.php?action=blockedUser', { uid: userId }, {
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+                });
+                if (response.data.status === 'success' && response.data.blocked) {
+                    socket.emit('user-blocked', { userId, blocked: true });
+                    return;
+                }
+            } catch (error) {
+                console.error(`Error checking block status for user ${userId}:`, error.message);
             }
-            onlineUsers.set(userId, { socketId: socket.id, name, email, status: 'online' });
+
+            if (onlineUsers.has(userId)) {
+                const userData = onlineUsers.get(userId);
+                if (userData.disconnectTimeout) {
+                    clearTimeout(userData.disconnectTimeout);
+                }
+            }
+            onlineUsers.set(userId, { 
+                socketId: socket.id, 
+                name, 
+                email, 
+                status: 'online',
+                disconnectTimeout: null // Initialize disconnect timeout as null
+            });
             socket.join(userId);
-            console.log(`User ${userId} joined room ${userId}, current rooms:`, Array.from(socket.rooms));
 
             const statusUpdate = { userId, status: 'online', name, email, message, timestamp };
-            console.log(`Emitting user-status-update:`, statusUpdate);
+
             io.emit('user-status-update', statusUpdate);
             io.emit('online-users', Array.from(onlineUsers.entries()).map(([id, data]) => ({
                 userId: id,
@@ -48,18 +67,49 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('join-room', (roomId) => {
+    socket.on('join-room', async (roomId) => {
         roomId = String(roomId);
+
+        try {
+            const response = await axios.post('http://localhost/chatapp_v2/user/backend/threads.php?action=blockedUser', { uid: roomId }, {
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            });
+
+            if (response.data.status === 'success' && response.data.blocked) {
+                socket.emit('user-blocked', { roomId, blocked: true });
+                return;
+            }
+        } catch (error) {
+            console.error(`Error checking block status for user ${userId}:`, error.message);
+        }
+
         socket.join(roomId);
-        console.log(`Socket ${socket.id} joined room ${roomId}, current rooms:`, Array.from(socket.rooms));
         socket.emit('room-joined', { roomId });
+    });
+
+    socket.on('admin-block-user', ({ userId, blocked }) => {
+        io.to(userId).emit('user-blocked', { userId, blocked });
+        io.emit('user-status-updated', { userId, blocked });
+        if (blocked && onlineUsers.has(userId)) {
+            const userData = onlineUsers.get(userId);
+            if (userData.disconnectTimeout) {
+                clearTimeout(userData.disconnectTimeout);
+            }
+            onlineUsers.delete(userId);
+            io.emit('user-status-update', {
+                userId,
+                status: 'offline',
+                name: userData.name,
+                email: userData.email
+            });
+        }
     });
 
     socket.on('send-message', ({ roomId, message, sender, timestamp, from, image, msgId }) => {
         roomId = String(roomId);
-        console.log(`Received send-message for room ${roomId}:`, { message, sender, timestamp, from, image, msgId });
+        
         const roomSockets = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
-        console.log(`Sockets in room ${roomId}:`, roomSockets);
+        
         if (roomSockets.length === 0) {
             console.warn(`No sockets in room ${roomId}, message not broadcasted`);
         } else {
@@ -72,56 +122,10 @@ io.on('connection', (socket) => {
                 image,
                 msgId
             });
-            console.log(`Broadcasted new-message to room ${roomId} for sockets:`, roomSockets);
         }
     });
 
-    // socket.on('send-message', ({ roomId, message, sender, timestamp, from, image, msgId }) => {
-    //     roomId = String(roomId);
-    //     console.log(`Received send-message for room ${roomId}:`, { message, sender, timestamp, from, image, msgId });
-    //     const roomSockets = Array.from(io.sockets.adapter.rooms.get(roomId) || []);
-    //     console.log(`Sockets in room ${roomId}:`, roomSockets);
-    //     if (roomSockets.length === 0) {
-    //         console.warn(`No sockets in room ${roomId}, message not broadcasted`);
-    //     } else {
-    //         io.to(roomId).emit('new-message', {
-    //             threadId: roomId,
-    //             message,
-    //             sender,
-    //             timestamp,
-    //             from,
-    //             image,
-    //             msgId
-    //         });
-    //         console.log(`Broadcasted new-message to room ${roomId}`);
-    //     }
-    // });
-
-    // socket.on('disconnect', () => {
-    //     console.log(`Client disconnected: ${socket.id}`);
-    //     let disconnectedUserId = null;
-    //     let userData = null;
-    //     for (const [userId, data] of onlineUsers.entries()) {
-    //         if (data.socketId === socket.id) {
-    //             disconnectedUserId = userId;
-    //             userData = data;
-    //             break;
-    //         }
-    //     }
-    //     if (disconnectedUserId && userData) {
-    //         onlineUsers.delete(disconnectedUserId);
-    //         console.log(`User ${disconnectedUserId} marked offline`);
-    //         io.emit('user-status-update', {
-    //             userId: disconnectedUserId,
-    //             status: 'offline',
-    //             name: userData.name,
-    //             email: userData.email
-    //         });
-    //     }
-    // });
-
-    socket.on('disconnect', async () => {
-        console.log(`Client disconnected: ${socket.id}`);
+    socket.on('disconnect', () => {
         let disconnectedUserId = null;
         let userData = null;
         for (const [userId, data] of onlineUsers.entries()) {
@@ -133,34 +137,59 @@ io.on('connection', (socket) => {
         }
         if (disconnectedUserId && userData) {
             onlineUsers.delete(disconnectedUserId);
-            console.log(`User ${disconnectedUserId} marked offline`);
-            // Call logout.php to update database
-            try {
-                const response = await axios.post('http://localhost/chatapp_v2/user/logout.php', { uid: disconnectedUserId }, {
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-                });
-                console.log(`logout.php response for user ${disconnectedUserId}:`, response.data);
-                if (response.data.status !== 'success') {
-                    console.error(`Failed to logout user ${disconnectedUserId}:`, response.data.error);
-                }
-            } catch (error) {
-                console.error(`Error calling logout.php for user ${disconnectedUserId}:`, error.message);
-            }
             io.emit('user-status-update', {
                 userId: disconnectedUserId,
                 status: 'offline',
                 name: userData.name,
                 email: userData.email
             });
-            io.emit('logout', { userId: disconnectedUserId });
         }
     });
+
+    // socket.on('disconnect', async () => {
+    //     let disconnectedUserId = null;
+    //     let userData = null;
+    //     for (const [userId, data] of onlineUsers.entries()) {
+    //         if (data.socketId === socket.id) {
+    //             disconnectedUserId = userId;
+    //             userData = data;
+    //             break;
+    //         }
+    //     }
+    //     if (disconnectedUserId && userData && onlineUsers.has(disconnectedUserId)) {
+    //         const disconnectTimeout = setTimeout(async () => {
+    //             if (!onlineUsers.has(disconnectedUserId)) return;
+    //             onlineUsers.delete(disconnectedUserId);
+                
+    //             try {
+    //                 const response = await axios.post('http://localhost/chatapp_v2/user/logout.php', { uid: disconnectedUserId }, {
+    //                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    //                 });
+
+    //                 if (response.data.status !== 'success') {
+    //                     console.error(`Failed to logout user ${disconnectedUserId}:`, response.data.error);
+    //                 }
+    //             } catch (error) {
+    //                 console.error(`Error calling logout.php for user ${disconnectedUserId}:`, error.message);
+    //             }
+    //             io.emit('user-status-update', {
+    //                 userId: disconnectedUserId,
+    //                 status: 'offline',
+    //                 name: userData.name,
+    //                 email: userData.email
+    //             });
+    //             io.emit('logout', { userId: disconnectedUserId });
+    //         }, DISCONNECT_GRACE_PERIOD);
+
+    //         userData.disconnectTimeout = disconnectTimeout;
+    //         onlineUsers.set(disconnectedUserId, userData);
+    //     }
+    // });
 
     socket.on('logout', ({ userId }) => {
         if (onlineUsers.has(userId)) {
             const userData = onlineUsers.get(userId);
             onlineUsers.delete(userId);
-            console.log(`User ${userId} logged out`);
             io.emit('user-status-update', {
                 userId,
                 status: 'offline',
@@ -173,6 +202,37 @@ io.on('connection', (socket) => {
         }
     });
 
+    // socket.on('logout', async ({ userId }) => {
+    //     if (onlineUsers.has(userId)) {
+    //         const userData = onlineUsers.get(userId);
+
+    //         if (userData.disconnectTimeout) {
+    //             clearTimeout(userData.disconnectTimeout);
+    //         }
+    //         onlineUsers.delete(userId);
+
+    //         try {
+    //             const response = await axios.post('http://localhost/chatapp_v2/user/logout.php', { uid: userId }, {
+    //                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    //             });
+
+    //             if (response.data.status !== 'success') {
+    //                 console.error(`Failed to logout user ${userId}:`, response.data.error);
+    //             }
+    //         } catch (error) {
+    //             console.error(`Error calling logout.php for user ${userId}:`, error.message);
+    //         }
+    //         io.emit('user-status-update', {
+    //             userId,
+    //             status: 'offline',
+    //             name: userData.name,
+    //             email: userData.email
+    //         });
+    //         io.emit('logout', { userId });
+    //     } else {
+    //         console.warn(`Logout attempt for unknown user ${userId}`);
+    //     }
+    // });
 });
 
 const PORT = process.env.PORT || 3000;
