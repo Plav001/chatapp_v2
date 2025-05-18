@@ -6,7 +6,7 @@ const axios = require('axios');
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: '*',
+        origin: ['https://coddot.in/'],
         methods: ['GET', 'POST']
     }
 });
