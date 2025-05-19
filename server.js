@@ -80,7 +80,7 @@ io.on('connection', (socket) => {
                 return;
             }
         } catch (error) {
-            console.error(`Error checking block status for user ${roomId}:`, error.message);
+            console.error(`Error checking block status for user:`, error.message);
         }
 
         socket.join(roomId);
