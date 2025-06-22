@@ -59,7 +59,7 @@ io.on('connection', (socket) => {
         if (userId) {
 
             try {
-                const response = await axios.post('http://localhost/chatapp_v2/user/backend/threads.php?action=blockedUser', { uid: userId }, {
+                const response = await axios.post('https://coddot.in/chatapp_v3/user/backend/threads.php?action=blockedUser', { uid: userId }, {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
                 });
                 if (response.data.status === 'success' && response.data.blocked) {
@@ -103,7 +103,7 @@ io.on('connection', (socket) => {
         roomId = String(roomId);
 
         try {
-            const response = await axios.post('http://localhost/chatapp_v2/user/backend/threads.php?action=blockedUser', { uid: roomId }, {
+            const response = await axios.post('https://coddot.in/chatapp_v3/user/backend/threads.php?action=blockedUser', { uid: roomId }, {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
             });
 
