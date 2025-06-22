@@ -37,7 +37,7 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', port: PORT });
 });
 
-app.post('/emit-message', (req, res) => {
+app.post('/emit-message', async (req, res) => {
     const { threadId, message, sender, timestamp, from, image, msgId } = req.body;
 
     if (!threadId || !message || !sender || !timestamp || !from || !msgId) {
@@ -45,6 +45,7 @@ app.post('/emit-message', (req, res) => {
         return res.status(400).json({ status: 'error', message: 'Missing required fields' });
     }
 
+    // Emit to Socket.IO
     const roomSockets = Array.from(io.sockets.adapter.rooms.get(String(threadId)) || []);
     if (roomSockets.length === 0) {
         console.warn(`No sockets in room ${threadId}, message not broadcasted`);
@@ -59,6 +60,24 @@ app.post('/emit-message', (req, res) => {
             msgId
         });
         console.log(`Emitted message to room ${threadId}:`, { message, sender, from, msgId });
+    }
+
+    // Optional: Update database via telegram-webhook.php
+    try {
+        await axios.post('https://coddot.in/chatapp_v3/user/telegram-webhook.php', {
+            message: {
+                chat: { id: 7797834660 },
+                text: `To ${threadId}: ${message}`,
+                date: Math.floor(timestamp / 1000),
+                from: { first_name: sender },
+                message_id: msgId.replace('telegram_', '')
+            }
+        }, {
+            headers: { 'Content-Type': 'application/json' }
+        });
+        console.log('Database updated via webhook proxy');
+    } catch (error) {
+        console.error('Failed to update database:', error.message);
     }
 
     res.json({ status: 'success' });
