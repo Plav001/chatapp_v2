@@ -7,7 +7,7 @@ const server = http.createServer(app);
 const bodyParser = require('body-parser');
 const io = new Server(server, {
     cors: {
-        origin: 'https://coddot.in/',
+        origin: '*',
         methods: ['GET', 'POST']
     }
 });
