@@ -7,8 +7,9 @@ const server = http.createServer(app);
 const bodyParser = require('body-parser');
 const io = new Server(server, {
     cors: {
-        origin: 'https://coddot.in',
-        methods: ['GET', 'POST']
+        origin: "https://coddot.in",
+        methods: ["GET", "POST"],
+        credentials: true
     }
 });
 
@@ -32,16 +33,18 @@ app.use(express.static('public', {
     }
 }));
 
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', port: PORT });
+});
+
 app.post('/emit-message', (req, res) => {
     const { threadId, message, sender, timestamp, from, image, msgId } = req.body;
 
-    // Validate required fields
     if (!threadId || !message || !sender || !timestamp || !from || !msgId) {
         console.error('Invalid emit-message payload:', req.body);
         return res.status(400).json({ status: 'error', message: 'Missing required fields' });
     }
 
-    // Emit message to the specified room
     const roomSockets = Array.from(io.sockets.adapter.rooms.get(String(threadId)) || []);
     if (roomSockets.length === 0) {
         console.warn(`No sockets in room ${threadId}, message not broadcasted`);
@@ -62,9 +65,10 @@ app.post('/emit-message', (req, res) => {
 });
 
 io.on('connection', (socket) => {
+    console.log('New client connected, socket ID:', socket.id);
+
     socket.on('register', async ({ userId, name, email, message, timestamp }) => {
         if (userId) {
-
             try {
                 const response = await axios.post('https://coddot.in/chatapp_v3/user/backend/threads.php?action=blockedUser', { uid: userId }, {
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -88,7 +92,7 @@ io.on('connection', (socket) => {
                 name, 
                 email, 
                 status: 'online',
-                disconnectTimeout: null // Initialize disconnect timeout as null
+                disconnectTimeout: null
             });
             socket.join(userId);
 
@@ -119,7 +123,7 @@ io.on('connection', (socket) => {
                 return;
             }
         } catch (error) {
-            console.error(`Error checking block status for user ${userId}:`, error.message);
+            console.error(`Error checking block status for user ${roomId}:`, error.message);
         }
 
         socket.join(roomId);
@@ -214,10 +218,9 @@ io.on('connection', (socket) => {
             timestamp: Date.now()
         });
     });
-
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000; // Match Render's assigned port if needed
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
