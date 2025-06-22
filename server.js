@@ -7,7 +7,7 @@ const server = http.createServer(app);
 const bodyParser = require('body-parser');
 const io = new Server(server, {
     cors: {
-        origin: '*',
+        origin: 'https://coddot.in',
         methods: ['GET', 'POST']
     }
 });
@@ -16,6 +16,13 @@ const onlineUsers = new Map();
 const DISCONNECT_GRACE_PERIOD = 7000;
 
 app.use(bodyParser.json());
+
+app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "https://coddot.in");
+    res.header("Access-Control-Allow-Methods", "GET, POST");
+    res.header("Access-Control-Allow-Headers", "Content-Type");
+    next();
+});
 
 app.use(express.static('public', {
     setHeaders: (res, path) => {
